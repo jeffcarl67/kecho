@@ -27,6 +27,8 @@ static int get_request(struct socket *sock, unsigned char *buf, size_t size)
     printk(MODULE_NAME ": start get response\n");
     /* get msg */
     length = kernel_recvmsg(sock, &msg, &vec, size, size, msg.msg_flags);
+    if (length > 0 && length < size)
+        buf[length] = '\0';
     printk(MODULE_NAME ": get request = %s\n", buf);
 
     return length;
@@ -61,6 +63,7 @@ static int echo_server_worker(void *arg)
     struct socket *sock;
     unsigned char *buf;
     int res;
+    int length;
 
     sock = (struct socket *) arg;
     allow_signal(SIGKILL);
@@ -80,7 +83,11 @@ static int echo_server_worker(void *arg)
             }
             break;
         }
-
+        length = strlen(buf);
+        if (length < BUF_SIZE - 1) {
+            buf[length] = '\n';
+            buf[length + 1] = '\0';
+        }
         res = send_request(sock, buf, strlen(buf));
         if (res < 0) {
             printk(KERN_ERR MODULE_NAME ": send request error = %d\n", res);
