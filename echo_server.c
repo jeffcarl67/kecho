@@ -2,10 +2,18 @@
 #include <linux/kthread.h>
 #include <linux/sched/signal.h>
 #include <linux/tcp.h>
+#include <linux/workqueue.h>
 
 #include "fastecho.h"
 
 #define BUF_SIZE 4096
+
+static struct workqueue_struct *workq;
+
+struct work_struct_data {
+    struct work_struct work;
+    struct socket *client;
+};
 
 static int get_request(struct socket *sock, unsigned char *buf, size_t size)
 {
@@ -58,21 +66,22 @@ static int send_request(struct socket *sock, unsigned char *buf, size_t size)
     return length;
 }
 
-static int echo_server_worker(void *arg)
+static void echo_server_worker(struct work_struct *work)
 {
     struct socket *sock;
     unsigned char *buf;
     int res;
     int length;
+    struct work_struct_data *wsdata = (struct work_struct_data *) work;
 
-    sock = (struct socket *) arg;
+    sock = wsdata->client;
     allow_signal(SIGKILL);
     allow_signal(SIGTERM);
 
     buf = kmalloc(BUF_SIZE, GFP_KERNEL);
     if (!buf) {
         printk(KERN_ERR MODULE_NAME ": kmalloc error....\n");
-        return -1;
+        return;
     }
 
     while (!kthread_should_stop()) {
@@ -102,20 +111,22 @@ static int echo_server_worker(void *arg)
     sock_release(sock);
     kfree(buf);
 
-    return 0;
+    // return 0;
 }
 
 int echo_server_daemon(void *arg)
 {
     struct echo_server_param *param = arg;
     struct socket *sock;
-    struct task_struct *thread;
+    // struct task_struct *thread;
     int error;
 
     allow_signal(SIGKILL);
     allow_signal(SIGTERM);
 
+    workq = create_workqueue("fastechoq");
     while (!kthread_should_stop()) {
+        struct work_struct_data *wsdata;
         /* using blocking I/O */
         error = kernel_accept(param->listen_sock, &sock, 0);
         if (error < 0) {
@@ -126,13 +137,28 @@ int echo_server_daemon(void *arg)
         }
 
         /* start server worker */
+        /*
         thread = kthread_run(echo_server_worker, sock, MODULE_NAME);
         if (IS_ERR(thread)) {
             printk(KERN_ERR MODULE_NAME ": create worker thread error = %d\n",
                    error);
             continue;
         }
-    }
+        */
 
+        if (workq) {
+            wsdata = (struct work_struct_data *) kmalloc(
+                sizeof(struct work_struct_data), GFP_KERNEL);
+            if (wsdata) {
+                wsdata->client = sock;
+                INIT_WORK(&wsdata->work, echo_server_worker);
+                error = queue_work(workq, &wsdata->work);
+            } else {
+                printk(KERN_ERR MODULE_NAME ": kmalloc error\n");
+            }
+        }
+    }
+    flush_workqueue(workq);
+    destroy_workqueue(workq);
     return 0;
 }
