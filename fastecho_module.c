@@ -29,6 +29,7 @@ module_param(backlog, ushort, S_IRUGO);
 struct echo_server_param param;
 struct socket *listen_sock;
 struct task_struct *echo_server;
+struct task_struct *http_server;
 
 static int open_listen(struct socket **);
 static void close_listen(struct socket *);
@@ -49,6 +50,10 @@ static int fastecho_init_module(void)
         close_listen(listen_sock);
     }
 
+    http_server = kthread_run(http_server_daemon, NULL, "khttp");
+    if (IS_ERR(echo_server)) {
+        printk(KERN_ERR MODULE_NAME ": cannot start http server daemon\n");
+    }
     return 0;
 }
 
@@ -57,6 +62,8 @@ static void fastecho_cleanup_module(void)
     send_sig(SIGTERM, echo_server, 1);
     kthread_stop(echo_server);
     close_listen(listen_sock);
+    send_sig(SIGTERM, http_server, 1);
+    kthread_stop(http_server);
 }
 
 static int open_listen(struct socket **result)
