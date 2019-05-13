@@ -1,4 +1,4 @@
-SRCS = fastecho_module.c echo_server.c
+SRCS = fastecho_module.c echo_server.c server_npy.c
 KERNEL_DIR = /lib/modules/$(shell uname -r)/build
 BUILD_DIR := $(shell pwd)
 VERBOSE   := 1
